@@ -1,58 +1,51 @@
 import allure
 import pytest
-from helpers import register_user
-from conftest import generate_random_string
-from data import MSG_USER_ALREADY_EXISTS, MSG_REQUIRED_FIELDS
 
-@allure.suite("Создание пользователя")
-class TestCreateUser:
+from helpers import generate_user_data
 
-    @allure.title("Успешное создание уникального пользователя")
-    def test_create_unique_user_success(self):
-        payload = {
-            "email": f"test_{generate_random_string(10)}@yandex.ru",
-            "password": generate_random_string(10),
-            "name": generate_random_string(10)
+
+@allure.feature("Регистрация пользователя")
+class TestRegistration:
+    @allure.title("Создание пользователя с уникальным email")
+    def test_create_unique_user(self, register_user):
+        user_data = generate_user_data()
+
+        response = register_user(user_data)
+
+        assert response.status_code == 200, response.text
+
+        body = response.json()
+
+        assert body["success"] is True
+        assert body["user"] == {
+            "email": user_data["email"],
+            "name": user_data["name"],
         }
-        response = register_user(payload)
-        assert response.status_code == 200
+        assert body.get("accessToken")
+        assert body.get("refreshToken")
 
-    @allure.title("Проверка ответа при успешной регистрации")
-    def test_create_unique_user_response(self):
-        payload = {
-            "email": f"test_{generate_random_string(10)}@yandex.ru",
-            "password": generate_random_string(10),
-            "name": generate_random_string(10)
+    @allure.title("Повторная регистрация существующего пользователя")
+    def test_create_existing_user(self, registered_user, register_user):
+        response = register_user(registered_user["data"])
+
+        assert response.status_code == 403, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "User already exists",
         }
-        response = register_user(payload)
-        assert response.json().get("success") is True
 
-    @allure.title("Создание дубликата пользователя возвращает код 403")
-    def test_create_duplicate_user_status(self, create_user):
-        response, payload = create_user
-        duplicate_response = register_user(payload)
-        assert duplicate_response.status_code == 403
+    @allure.title("Регистрация без обязательного поля: {field}")
+    @pytest.mark.parametrize("field", ["email", "password", "name"])
+    def test_create_user_without_required_field(
+        self, register_user, field
+    ):
+        data = generate_user_data()
+        data.pop(field)
 
-    @allure.title("Сообщение при создании дубликата пользователя")
-    def test_create_duplicate_user_message(self, create_user):
-        response, payload = create_user
-        duplicate_response = register_user(payload)
-        assert duplicate_response.json().get("message") == MSG_USER_ALREADY_EXISTS
+        response = register_user(data)
 
-    @allure.title("Создание пользователя без пароля возвращает код 403")
-    def test_create_user_without_password_status(self):
-        payload = {
-            "email": f"test_{generate_random_string(10)}@yandex.ru",
-            "name": generate_random_string(10)
+        assert response.status_code == 403, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "Email, password and name are required fields",
         }
-        response = register_user(payload)
-        assert response.status_code == 403
-
-    @allure.title("Сообщение при создании пользователя без пароля")
-    def test_create_user_without_password_message(self):
-        payload = {
-            "email": f"test_{generate_random_string(10)}@yandex.ru",
-            "name": generate_random_string(10)
-        }
-        response = register_user(payload)
-        assert response.json().get("message") == MSG_REQUIRED_FIELDS

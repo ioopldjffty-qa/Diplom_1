@@ -1,44 +1,54 @@
-import sys
-import os
 import pytest
-import requests
-import random
-import string
-import allure
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from api.burger_api import BurgerApi
+from helpers import generate_user_data
 
-from helpers import register_user, delete_user
-
-@allure.step("Генерация случайной строки")
-def generate_random_string(length):
-    letters = string.ascii_lowercase
-    return ''.join(random.choice(letters) for _ in range(length))
 
 @pytest.fixture
-def create_user():
-    email = f"test_{generate_random_string(10)}@yandex.ru"
-    password = generate_random_string(10)
-    name = generate_random_string(10)
+def register_user():
+    tokens = []
 
-    payload = {
-        "email": email,
-        "password": password,
-        "name": name
+    def register(data):
+        response = BurgerApi.register_user(data)
+
+        if response.status_code == 200:
+            token = response.json().get("accessToken")
+            if token:
+                tokens.append(token)
+
+        return response
+
+    yield register
+
+    errors = []
+
+    for token in tokens:
+        try:
+            response = BurgerApi.delete_user(token)
+            response.raise_for_status()
+        except Exception as error:
+            errors.append(str(error))
+
+    if errors:
+        raise RuntimeError(
+            "Не удалось удалить тестовых пользователей: "
+            + "; ".join(errors)
+        )
+
+
+@pytest.fixture
+def registered_user(register_user):
+    data = generate_user_data()
+    response = register_user(data)
+    response.raise_for_status()
+    body = response.json()
+
+    if body.get("success") is not True or not body.get("accessToken"):
+        raise RuntimeError(
+            f"Не удалось подготовить пользователя: {response.text}"
+        )
+
+    return {
+        "data": data,
+        "token": body["accessToken"],
     }
-
-    response = register_user(payload)
-    access_token = response.json().get("accessToken")
-
-    yield response, payload
-
-    # ОЧИСТКА
-    if access_token:
-        headers = {"Authorization": access_token}
-        delete_user(headers)
-
-@pytest.fixture
-def auth_headers(create_user):
-    response, payload = create_user
-    access_token = response.json().get("accessToken")
-    return {"Authorization": access_token}

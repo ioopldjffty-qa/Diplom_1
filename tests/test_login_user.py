@@ -1,46 +1,73 @@
 import allure
-import pytest
-from helpers import login_user
-from data import MSG_WRONG_CREDENTIALS
+
+from api.burger_api import BurgerApi
+from helpers import generate_user_data
 
 
-@allure.suite("Авторизация пользователя")
-class TestLoginUser:
+@allure.feature("Авторизация пользователя")
+class TestLogin:
+    @allure.title("Вход зарегистрированного пользователя")
+    def test_login_existing_user(self, registered_user):
+        user_data = registered_user["data"]
 
-    @allure.title("Успешный вход существующего пользователя")
-    def test_login_existing_user(self, create_user):
-        response, payload = create_user
-        login_payload = {
-            "email": payload["email"],
-            "password": payload["password"]
+        response = BurgerApi.login_user({
+            "email": user_data["email"],
+            "password": user_data["password"],
+        })
+
+        assert response.status_code == 200, response.text
+
+        body = response.json()
+
+        assert body["success"] is True
+        assert body["user"] == {
+            "email": user_data["email"],
+            "name": user_data["name"],
         }
-        login_response = login_user(login_payload)
-        assert login_response.status_code == 200
+        assert body.get("accessToken")
+        assert body.get("refreshToken")
 
-    @allure.title("Проверка наличия токена при успешном входе")
-    def test_login_existing_user_has_token(self, create_user):
-        response, payload = create_user
-        login_payload = {
-            "email": payload["email"],
-            "password": payload["password"]
-        }
-        login_response = login_user(login_payload)
-        assert login_response.json().get("accessToken") is not None
+    @allure.title("Вход с неверным email")
+    def test_login_with_wrong_email(self, registered_user):
+        unknown_user = generate_user_data()
 
-    @allure.title("Вход с неверными данными возвращает код 401")
-    def test_login_wrong_credentials_status(self):
-        login_payload = {
-            "email": "wrong_email@yandex.ru",
-            "password": "wrong_password"
-        }
-        response = login_user(login_payload)
-        assert response.status_code == 401
+        response = BurgerApi.login_user({
+            "email": unknown_user["email"],
+            "password": registered_user["data"]["password"],
+        })
 
-    @allure.title("Сообщение при неверных данных авторизации")
-    def test_login_wrong_credentials_message(self):
-        login_payload = {
-            "email": "wrong_email@yandex.ru",
-            "password": "wrong_password"
+        assert response.status_code == 401, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "email or password are incorrect",
         }
-        response = login_user(login_payload)
-        assert response.json().get("message") == MSG_WRONG_CREDENTIALS
+
+    @allure.title("Вход с неверным паролем")
+    def test_login_with_wrong_password(self, registered_user):
+        other_data = generate_user_data()
+
+        response = BurgerApi.login_user({
+            "email": registered_user["data"]["email"],
+            "password": other_data["password"],
+        })
+
+        assert response.status_code == 401, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "email or password are incorrect",
+        }
+
+    @allure.title("Вход с неверными email и паролем")
+    def test_login_with_wrong_email_and_password(self, registered_user):
+        unknown_user = generate_user_data()
+
+        response = BurgerApi.login_user({
+            "email": unknown_user["email"],
+            "password": unknown_user["password"],
+        })
+
+        assert response.status_code == 401, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "email or password are incorrect",
+        }

@@ -1,19 +1,36 @@
-import requests
-import allure
-from data import BASE_URL
+from uuid import uuid4
 
-@allure.step("Отправляем запрос на регистрацию пользователя")
-def register_user(payload):
-    return requests.post(f"{BASE_URL}/api/auth/register", data=payload)
+from api.burger_api import BurgerApi
 
-@allure.step("Отправляем запрос на авторизацию пользователя")
-def login_user(payload):
-    return requests.post(f"{BASE_URL}/api/auth/login", data=payload)
 
-@allure.step("Отправляем запрос на создание заказа")
-def create_order(payload, headers=None):
-    return requests.post(f"{BASE_URL}/api/orders", json=payload, headers=headers)
+def generate_user_data():
+    unique_id = uuid4().hex
 
-@allure.step("Отправляем запрос на удаление пользователя")
-def delete_user(headers):
-    return requests.delete(f"{BASE_URL}/api/auth/user", headers=headers)
+    return {
+        "email": f"test_{unique_id}@example.com",
+        "password": f"Password_{unique_id}",
+        "name": "Тестовый пользователь",
+    }
+
+
+def get_ingredient_ids():
+    response = BurgerApi.get_ingredients()
+    response.raise_for_status()
+    body = response.json()
+
+    if body.get("success") is not True:
+        raise RuntimeError(
+            f"Не удалось получить ингредиенты: {response.text}"
+        )
+
+    ingredients = body["data"]
+    bun = next(
+        item["_id"] for item in ingredients
+        if item["type"] == "bun"
+    )
+    filling = next(
+        item["_id"] for item in ingredients
+        if item["type"] == "main"
+    )
+
+    return [bun, filling, bun]

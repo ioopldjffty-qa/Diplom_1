@@ -1,42 +1,91 @@
 import allure
-from helpers import create_order
-from data import INGREDIENT_HASH_1, INGREDIENT_HASH_2, INVALID_INGREDIENT_HASH, MSG_NEED_AUTH, MSG_NEED_INGREDIENTS
 
-@allure.suite("Создание заказа")
-class TestCreateOrder:
+from api.burger_api import BurgerApi
+from helpers import get_ingredient_ids
 
-    @allure.title("Создание заказа с авторизацией")
-    def test_create_order_with_auth(self, auth_headers):
-        payload = {"ingredients": [INGREDIENT_HASH_1, INGREDIENT_HASH_2]}
-        response = create_order(payload, auth_headers)
-        assert response.status_code == 200
 
-    @allure.title("Создание заказа без авторизации (разрешено API)")
-    def test_create_order_without_auth(self):
-        payload = {"ingredients": [INGREDIENT_HASH_1]}
-        response = create_order(payload)
-        assert response.status_code == 200
+@allure.feature("Создание заказа")
+class TestOrders:
+    @allure.title("Создание заказа с ингредиентами и авторизацией")
+    def test_create_order_with_authorization(self, registered_user):
+        ingredients = get_ingredient_ids()
 
-    @allure.title("Создание заказа с большим количеством ингредиентов")
-    def test_create_order_with_ingredients(self, auth_headers):
-        payload = {"ingredients": [INGREDIENT_HASH_1, INGREDIENT_HASH_2]}
-        response = create_order(payload, auth_headers)
-        assert response.status_code == 200
+        response = BurgerApi.create_order(
+            {"ingredients": ingredients},
+            token=registered_user["token"],
+        )
 
-    @allure.title("Создание заказа без ингредиентов возвращает 400")
-    def test_create_order_without_ingredients(self, auth_headers):
-        payload = {"ingredients": []}
-        response = create_order(payload, auth_headers)
-        assert response.status_code == 400
+        assert response.status_code == 200, response.text
 
-    @allure.title("Сообщение при создании заказа без ингредиентов")
-    def test_create_order_without_ingredients_message(self, auth_headers):
-        payload = {"ingredients": []}
-        response = create_order(payload, auth_headers)
-        assert response.json().get("message") == MSG_NEED_INGREDIENTS
+        body = response.json()
 
-    @allure.title("Создание заказа с неверным хешем ингредиента")
-    def test_create_order_with_invalid_ingredient_hash(self, auth_headers):
-        payload = {"ingredients": [INVALID_INGREDIENT_HASH]}
-        response = create_order(payload, auth_headers)
-        assert response.status_code == 500
+        assert body["success"] is True
+        assert isinstance(body["order"]["number"], int)
+        assert body["order"]["number"] > 0
+        assert body["order"]["owner"]["email"] == (
+            registered_user["data"]["email"]
+        )
+
+    @allure.title("Создание заказа с ингредиентами без авторизации")
+    def test_create_order_without_authorization(self):
+        ingredients = get_ingredient_ids()
+
+        response = BurgerApi.create_order(
+            {"ingredients": ingredients}
+        )
+
+        assert response.status_code == 200, response.text
+
+        body = response.json()
+
+        assert body["success"] is True
+        assert isinstance(body["order"]["number"], int)
+        assert body["order"]["number"] > 0
+
+    @allure.title("Создание заказа без ингредиентов с авторизацией")
+    def test_create_empty_order_with_authorization(self, registered_user):
+        response = BurgerApi.create_order(
+            {"ingredients": []},
+            token=registered_user["token"],
+        )
+
+        assert response.status_code == 400, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "Ingredient ids must be provided",
+        }
+
+    @allure.title("Создание заказа без ингредиентов без авторизации")
+    def test_create_empty_order_without_authorization(self):
+        response = BurgerApi.create_order({"ingredients": []})
+
+        assert response.status_code == 400, response.text
+        assert response.json() == {
+            "success": False,
+            "message": "Ingredient ids must be provided",
+        }
+
+    @allure.title("Неверный хеш ингредиента с авторизацией")
+    def test_invalid_hash_with_authorization(self, registered_user):
+        response = BurgerApi.create_order(
+            {"ingredients": ["invalid_ingredient_hash"]},
+            token=registered_user["token"],
+        )
+
+        assert response.status_code == 500, response.text
+        assert response.headers.get("Content-Type", "").startswith(
+            "text/html"
+        )
+        assert "<pre>Internal Server Error</pre>" in response.text
+
+    @allure.title("Неверный хеш ингредиента без авторизации")
+    def test_invalid_hash_without_authorization(self):
+        response = BurgerApi.create_order(
+            {"ingredients": ["invalid_ingredient_hash"]}
+        )
+
+        assert response.status_code == 500, response.text
+        assert response.headers.get("Content-Type", "").startswith(
+            "text/html"
+        )
+        assert "<pre>Internal Server Error</pre>" in response.text
