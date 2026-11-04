@@ -1,38 +1,88 @@
+import os
+from uuid import uuid4
+
+import allure
 import pytest
-from selenium import webdriver
 import requests
-import urls
-import data
-from helpers import Generator
+from selenium import webdriver
 
-@pytest.fixture(params=[data.browser_chrome, data.browser_firefox])
+from config import BASE_URL, REQUEST_TIMEOUT
+from pages.login_page import LoginPage
+
+
+@pytest.fixture(params=["chrome", "firefox"])
 def driver(request):
-    if request.param == data.browser_chrome:
-        data.DRIVER_NAME = data.browser_chrome
-        driver = webdriver.Chrome()
-    elif request.param == data.browser_firefox:
-        data.DRIVER_NAME = data.browser_firefox
-        driver = webdriver.Firefox()
-    driver.maximize_window()
-    driver.get(urls.BASE_URL)
-    yield driver
-    driver.quit()
+    os.environ["SE_SKIP_DRIVER_IN_PATH"] = "true"
 
-@pytest.fixture()
-def create_new_user_and_delete():
-    email = Generator.generate_random_email(5)
-    password = Generator.generate_random_string(7)
-    name = Generator.generate_random_string(7)
+    if request.param == "chrome":
+        browser = webdriver.Chrome()
+    else:
+        browser = webdriver.Firefox()
 
-    payload = {
-        "email": email,
-        "password": password,
-        "name": name
+    try:
+        browser.set_window_size(1920, 1080)
+        allure.dynamic.parameter("browser", request.param)
+        yield browser
+    finally:
+        browser.quit()
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    outcome = yield
+    report = outcome.get_result()
+
+    if report.when == "call" and report.failed:
+        browser = item.funcargs.get("driver")
+        if browser is not None:
+            allure.attach(
+                browser.get_screenshot_as_png(),
+                name="Страница в момент падения",
+                attachment_type=allure.attachment_type.PNG,
+            )
+
+
+@pytest.fixture
+def registered_user():
+    unique_id = uuid4().hex
+    data = {
+        "email": f"ui_{unique_id}@example.com",
+        "password": f"Password_{unique_id}",
+        "name": "Тестовый пользователь",
     }
 
-    response = requests.post(urls.USER_REGISTER_ENDPOINT, json=payload)
-    response_json = response.json()
-    token = response_json.get('accessToken')
-    yield email, password, token
-    headers = {'Authorization': token[1]}
-    requests.delete(urls.USER_DELETE_ENDPOINT, headers=headers)
+    response = requests.post(
+        BASE_URL + "/api/auth/register",
+        json=data,
+        timeout=REQUEST_TIMEOUT,
+    )
+    response.raise_for_status()
+
+    body = response.json()
+    token = body.get("accessToken")
+
+    if not token:
+        raise RuntimeError(
+            f"Не получен токен тестового пользователя: {response.text}"
+        )
+
+    try:
+        yield data
+    finally:
+        delete_response = requests.delete(
+            BASE_URL + "/api/auth/user",
+            headers={"Authorization": token},
+            timeout=REQUEST_TIMEOUT,
+        )
+        delete_response.raise_for_status()
+
+
+@pytest.fixture
+def authenticated_driver(driver, registered_user):
+    page = LoginPage(driver)
+    page.login(
+        registered_user["email"],
+        registered_user["password"],
+    )
+
+    return driver

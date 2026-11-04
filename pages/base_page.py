@@ -1,133 +1,174 @@
 import allure
-
-from selenium.common import TimeoutException
-from selenium.webdriver.support import expected_conditions
-from selenium.webdriver.support.wait import WebDriverWait
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    StaleElementReferenceException,
+)
 from selenium.webdriver import ActionChains
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
+
+from config import BASE_URL, UI_TIMEOUT
+from locators.base_locators import BaseLocators
+
 
 class BasePage:
-
-    @allure.step('Инициализация веб-драйвера')
     def __init__(self, driver):
         self.driver = driver
+        self.wait = WebDriverWait(driver, UI_TIMEOUT)
 
-    @allure.step('Поиск элемента')
-    def find_element_with_wait(self, locator):
-        WebDriverWait(self.driver, 7).until(expected_conditions.visibility_of_element_located(locator))
-        return self.driver.find_element(*locator)
+    def wait_until(self, condition, timeout=None, message=""):
+        return WebDriverWait(
+            self.driver,
+            UI_TIMEOUT if timeout is None else timeout,
+            ignored_exceptions=(StaleElementReferenceException,),
+        ).until(
+            lambda driver: condition(),
+            message=message,
+        )
 
-    @allure.step('Кликабельность элемента')
-    def check_element_is_clickable(self, locator):
-        WebDriverWait(self.driver, 5).until(expected_conditions.element_to_be_clickable(locator))
-        return self.find_element_with_wait(locator)
+    @allure.step("Открыть страницу: {path}")
+    def open(self, path="/"):
+        self.driver.get(BASE_URL + path)
 
-    @allure.step('Ожидание для закрытия скрытого мадального окна')
-    def wait_for_modal_closed(self, driver, locator):
-        wait = WebDriverWait(driver, 2)
-        try:
-            element = wait.until(expected_conditions.invisibility_of_element_located(locator))
-            return element
-        except TimeoutException:
-            print("Modal did not close within the expected time")
+    def find_visible(self, locator):
+        return self.wait.until(
+            EC.visibility_of_element_located(locator)
+        )
 
-    @allure.step('Клик по элементу')
-    def click_to_element(self, locator):
-        WebDriverWait(self.driver, 3).until(expected_conditions.element_to_be_clickable(locator))
-        self.find_element_with_wait(locator).click()
+    def is_any_visible(self, locator):
+        return any(
+            element.is_displayed()
+            for element in self.driver.find_elements(*locator)
+        )
 
-    @allure.step('Добавление текста в элемент')
-    def add_text_to_element(self, locator, text):
-        self.find_element_with_wait(locator).send_keys(text)
+    def wait_until_hidden(self, locator):
+        return self.wait_until(
+            lambda: not self.is_any_visible(locator),
+            message=f"Элемент не исчез: {locator}",
+        )
 
-    @allure.step('Получение текста из элемента')
-    def get_text_from_element(self, locator):
-        return self.find_element_with_wait(locator).text
+    def click(self, locator, wait_for_overlay=True):
+        def try_click(driver):
+            if (
+                wait_for_overlay
+                and self.is_any_visible(BaseLocators.MODAL_OVERLAY)
+            ):
+                return False
 
-    @allure.step('Скролл до элемента')
-    def scroll_into_view_js(self, element):
-        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", element)
+            elements = driver.find_elements(*locator)
+            element = next(
+                (
+                    item for item in elements
+                    if item.is_displayed() and item.is_enabled()
+                ),
+                None,
+            )
 
-    @allure.step('Ожидание исчезновения элемента из видимости')
-    def wait_disappear_element(self, locator):
-        WebDriverWait(self.driver, 10).until(expected_conditions.invisibility_of_element_located(locator))
+            if element is None:
+                return False
 
-    # работает только в chrome
-    @allure.step('Скролл до нужного элемента')
-    def scroll_into_view(self, locator):
-        element = self.find_element_with_wait(locator)
-        actions = ActionChains(self.driver)
-        actions.move_to_element(element).perform()
+            element.click()
+            return True
 
-    @allure.step("Получение текущего URL")
-    def get_current_url(self):
-        return self.driver.current_url
+        WebDriverWait(
+            self.driver,
+            UI_TIMEOUT,
+            ignored_exceptions=(
+                ElementClickInterceptedException,
+                StaleElementReferenceException,
+            ),
+        ).until(
+            try_click,
+            message=f"Не удалось кликнуть по элементу: {locator}",
+        )
 
-    @allure.step('Отображение эдемента')
-    def element_is_displayed(self, locator):
-        return self.find_element_with_wait(locator).is_displayed()
+    def fill(self, locator, value):
+        element = self.find_visible(locator)
+        element.clear()
+        element.send_keys(value)
 
-    @allure.step('Перетаскивание элемента с одного места на другое для Chrome')
-    def move_the_element(self, locator_element, locator_target):
-        element = self.find_element_with_wait(locator_element)
-        target = self.find_element_with_wait(locator_target)
-        action_chains = ActionChains(self.driver)
-        action_chains.drag_and_drop(element, target).perform()
+    def get_text(self, locator):
+        return self.find_visible(locator).text
 
-    @allure.step('Перетаскивание элемента с одного места на другое для Firefox')
-    def drag_and_drop_element(self, source_locator, target_locator):
-        source_element = self.find_element_with_wait(source_locator)
-        target_element = self.find_element_with_wait(target_locator)
-        actions = ActionChains(self.driver)
-        actions.drag_and_drop(source_element, target_element).perform()
+    def wait_for_url(self, url):
+        return self.wait.until(EC.url_to_be(url))
 
-        script = """
-        function simulateDragDrop(sourceNode, destinationNode) {
-            var EVENT_TYPES = {
-                DRAG_END: 'dragend',
-                DRAG_START: 'dragstart',
-                DROP: 'drop'
-            }
+    def get_numbers(self, locator):
+        numbers = []
 
-            function createCustomEvent(type) {
-                var event = new CustomEvent("CustomEvent")
-                event.initCustomEvent(type, true, true, null)
-                event.dataTransfer = {
-                    data: {
-                    },
-                    setData: function(type, val) {
-                        this.data[type] = val
-                    },
-                    getData: function(type) {
-                        return this.data[type]
-                    }
+        for element in self.driver.find_elements(*locator):
+            if element.is_displayed():
+                text = "".join(element.text.split())
+                if text.isdigit():
+                    numbers.append(int(text))
+
+        return numbers
+
+    def wait_for_number(
+        self,
+        locator,
+        predicate=None,
+        timeout=None,
+        message="Не появилось ожидаемое числовое значение",
+    ):
+        def number_matches():
+            numbers = self.get_numbers(locator)
+            if not numbers:
+                return False
+
+            value = numbers[0]
+            if predicate is not None and not predicate(value):
+                return False
+
+            return (value,)
+
+        return self.wait_until(
+            number_matches,
+            timeout=timeout,
+            message=message,
+        )[0]
+
+    def wait_for_number_in_list(self, locator, number, timeout=None):
+        self.wait_until(
+            lambda: number in self.get_numbers(locator),
+            timeout=timeout,
+            message=f"Номер {number} не появился в списке",
+        )
+
+    def drag_and_drop(self, source_locator, target_locator):
+        self.wait_until_hidden(BaseLocators.MODAL_OVERLAY)
+
+        source = self.find_visible(source_locator)
+        target = self.find_visible(target_locator)
+
+        if self.driver.capabilities["browserName"] == "firefox":
+            self.driver.execute_script(
+                """
+                const source = arguments[0];
+                const target = arguments[1];
+                const transfer = new DataTransfer();
+
+                function dispatch(element, type) {
+                    const rect = element.getBoundingClientRect();
+                    element.dispatchEvent(new DragEvent(type, {
+                        bubbles: true,
+                        cancelable: true,
+                        dataTransfer: transfer,
+                        clientX: rect.left + rect.width / 2,
+                        clientY: rect.top + rect.height / 2
+                    }));
                 }
-                return event
-            }
 
-            function dispatchEvent(node, type, event) {
-                if (node.dispatchEvent) {
-                    return node.dispatchEvent(event)
-                }
-                if (node.fireEvent) {
-                    return node.fireEvent("on" + type, event)
-                }
-            }
-
-            var event = createCustomEvent(EVENT_TYPES.DRAG_START)
-            dispatchEvent(sourceNode, EVENT_TYPES.DRAG_START, event)
-
-            var dropEvent = createCustomEvent(EVENT_TYPES.DROP)
-            dropEvent.dataTransfer = event.dataTransfer
-            dispatchEvent(destinationNode, EVENT_TYPES.DROP, dropEvent)
-
-            var dragEndEvent = createCustomEvent(EVENT_TYPES.DRAG_END)
-            dragEndEvent.dataTransfer = event.dataTransfer
-            dispatchEvent(sourceNode, EVENT_TYPES.DRAG_END, dragEndEvent)
-        }
-        simulateDragDrop(arguments[0], arguments[1]);
-        """
-        self.driver.execute_script(script, source_element, target_element)
-
-    @allure.step('Клик по кнопке для скрытых модальных окон')
-    def js_button_click(self, element):
-        self.driver.execute_script("arguments[0].click();", element)
+                dispatch(source, "dragstart");
+                dispatch(target, "dragenter");
+                dispatch(target, "dragover");
+                dispatch(target, "drop");
+                dispatch(source, "dragend");
+                """,
+                source,
+                target,
+            )
+        else:
+            ActionChains(self.driver).drag_and_drop(
+                source, target
+            ).perform()
