@@ -1,12 +1,12 @@
 from typing import List
 
-from praktikum.bun import Bun
-from praktikum.burger import Burger
-from praktikum.database import Database
-from praktikum.ingredient import Ingredient
-
-
 def main():
+    # Переносим все импорты внутрь функции
+    from praktikum.bun import Bun
+    from praktikum.burger import Burger
+    from praktikum.database import Database
+    from praktikum.ingredient import Ingredient
+
     # Инициализируем базу данных
     database: Database = Database()
 
