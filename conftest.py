@@ -1,5 +1,4 @@
 import os
-from uuid import uuid4
 
 import allure
 import pytest
@@ -7,6 +6,7 @@ import requests
 from selenium import webdriver
 
 from config import BASE_URL, REQUEST_TIMEOUT
+from helpers.user_data import generate_user_data
 from pages.login_page import LoginPage
 
 
@@ -44,12 +44,7 @@ def pytest_runtest_makereport(item, call):
 
 @pytest.fixture
 def registered_user():
-    unique_id = uuid4().hex
-    data = {
-        "email": f"ui_{unique_id}@example.com",
-        "password": f"Password_{unique_id}",
-        "name": "Тестовый пользователь",
-    }
+    data = generate_user_data()
 
     response = requests.post(
         BASE_URL + "/api/auth/register",

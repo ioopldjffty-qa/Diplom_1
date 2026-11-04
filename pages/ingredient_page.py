@@ -22,6 +22,7 @@ class IngredientPage(BasePage):
         )
         self.wait_until_hidden(IngredientLocators.OPEN_MODAL)
 
+    @allure.step("Проверить, что окно деталей ингредиента закрыто")
     def is_details_closed(self):
         return not self.is_any_visible(IngredientLocators.OPEN_MODAL)
 

@@ -12,10 +12,12 @@ from locators.base_locators import BaseLocators
 
 
 class BasePage:
+    @allure.step("Инициализировать объект страницы")
     def __init__(self, driver):
         self.driver = driver
         self.wait = WebDriverWait(driver, UI_TIMEOUT)
 
+    @allure.step("Дождаться выполнения условия")
     def wait_until(self, condition, timeout=None, message=""):
         return WebDriverWait(
             self.driver,
@@ -30,23 +32,27 @@ class BasePage:
     def open(self, path="/"):
         self.driver.get(BASE_URL + path)
 
+    @allure.step("Дождаться видимости элемента: {locator}")
     def find_visible(self, locator):
         return self.wait.until(
             EC.visibility_of_element_located(locator)
         )
 
+    @allure.step("Проверить наличие видимых элементов: {locator}")
     def is_any_visible(self, locator):
         return any(
             element.is_displayed()
             for element in self.driver.find_elements(*locator)
         )
 
+    @allure.step("Дождаться исчезновения элементов: {locator}")
     def wait_until_hidden(self, locator):
         return self.wait_until(
             lambda: not self.is_any_visible(locator),
             message=f"Элемент не исчез: {locator}",
         )
 
+    @allure.step("Нажать на элемент: {locator}")
     def click(self, locator, wait_for_overlay=True):
         def try_click(driver):
             if (
@@ -82,17 +88,21 @@ class BasePage:
             message=f"Не удалось кликнуть по элементу: {locator}",
         )
 
+    @allure.step("Заполнить поле: {locator}")
     def fill(self, locator, value):
         element = self.find_visible(locator)
         element.clear()
         element.send_keys(value)
 
+    @allure.step("Получить текст элемента: {locator}")
     def get_text(self, locator):
         return self.find_visible(locator).text
 
+    @allure.step("Дождаться перехода по адресу: {url}")
     def wait_for_url(self, url):
         return self.wait.until(EC.url_to_be(url))
 
+    @allure.step("Получить числа из видимых элементов: {locator}")
     def get_numbers(self, locator):
         numbers = []
 
@@ -104,6 +114,9 @@ class BasePage:
 
         return numbers
 
+    @allure.step(
+        "Дождаться ожидаемого числового значения: {locator}"
+    )
     def wait_for_number(
         self,
         locator,
@@ -128,6 +141,9 @@ class BasePage:
             message=message,
         )[0]
 
+    @allure.step(
+        "Дождаться числа {number} в списке: {locator}"
+    )
     def wait_for_number_in_list(self, locator, number, timeout=None):
         self.wait_until(
             lambda: number in self.get_numbers(locator),
@@ -135,6 +151,10 @@ class BasePage:
             message=f"Номер {number} не появился в списке",
         )
 
+    @allure.step(
+        "Перетащить элемент {source_locator} "
+        "в область {target_locator}"
+    )
     def drag_and_drop(self, source_locator, target_locator):
         self.wait_until_hidden(BaseLocators.MODAL_OVERLAY)
 
